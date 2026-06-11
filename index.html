@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>L'Odyssée de Nelio — Carnet de Santé Olympien</title>
+  <meta name="description" content="Carnet de santé et suivi quotidien pour Nelio. Suivi des repas, du poids, de la taille et du sommeil en temps réel.">
+  <meta name="theme-color" content="#1B4965">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏛️</text></svg>">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!--  MODAL : Configuration initiale         -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="setup-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-icon">⚡</span>
+        <h2>Bienvenue sur l'Olympe</h2>
+        <p>Configure le profil de ton héros</p>
+      </div>
+      <form id="setup-form" class="modal-form">
+        <div class="form-group">
+          <label for="setup-name">Prénom du héros</label>
+          <input type="text" id="setup-name" value="Nelio" required placeholder="Prénom">
+        </div>
+        <div class="form-group">
+          <label for="setup-birthdate">Date de naissance</label>
+          <input type="date" id="setup-birthdate" required>
+        </div>
+        <button type="submit" class="btn btn-gold btn-full">
+          <span>Commencer l'Odyssée</span>
+          <span class="btn-icon">🏛️</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!--  HEADER                                 -->
+  <!-- ═══════════════════════════════════════ -->
+  <header id="app-header">
+    <div class="header-content">
+      <div class="header-laurel">🏛️</div>
+      <h1 class="header-title">L'Odyssée de Nelio</h1>
+      <p class="header-subtitle">Carnet de Santé Olympien</p>
+    </div>
+    <div class="meander-border"></div>
+  </header>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!--  CONTENU PRINCIPAL                      -->
+  <!-- ═══════════════════════════════════════ -->
+  <main id="app-content">
+
+    <!-- ─── SECTION : TABLEAU DE BORD ─── -->
+    <section id="section-dashboard" class="app-section active">
+      <div class="section-title-row">
+        <h2 class="section-title">Tableau de Bord</h2>
+      </div>
+
+      <div class="hero-card" id="profile-card">
+        <div class="hero-card-header">
+          <span class="hero-emoji">👶</span>
+          <div class="hero-info">
+            <h3 id="dash-name">Nelio</h3>
+            <p id="dash-birthdate" class="text-muted">—</p>
+          </div>
+        </div>
+        <div class="hero-age-grid">
+          <div class="age-item">
+            <span class="age-value" id="dash-days">—</span>
+            <span class="age-label">jours</span>
+          </div>
+          <div class="age-item">
+            <span class="age-value" id="dash-weeks">—</span>
+            <span class="age-label">semaines</span>
+          </div>
+          <div class="age-item">
+            <span class="age-value" id="dash-months">—</span>
+            <span class="age-label">mois</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">⚖️</div>
+          <div class="stat-info">
+            <span class="stat-value" id="dash-weight">—</span>
+            <span class="stat-label">Dernier poids</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📏</div>
+          <div class="stat-info">
+            <span class="stat-value" id="dash-height">—</span>
+            <span class="stat-label">Dernière taille</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🍼</div>
+          <div class="stat-info">
+            <span class="stat-value" id="dash-last-meal">—</span>
+            <span class="stat-label">Dernier repas</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">😴</div>
+          <div class="stat-info">
+            <span class="stat-value" id="dash-sleep-today">—</span>
+            <span class="stat-label">Sommeil aujourd'hui</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── SECTION : REPAS ─── -->
+    <section id="section-meals" class="app-section">
+      <div class="section-title-row">
+        <h2 class="section-title">Suivi des Repas</h2>
+      </div>
+
+      <div class="card card-form">
+        <h3 class="card-title">🍼 Nouveau biberon</h3>
+        <form id="meal-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="meal-date">Date</label>
+              <input type="date" id="meal-date" required>
+            </div>
+            <div class="form-group">
+              <label for="meal-time">Heure</label>
+              <input type="time" id="meal-time" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="meal-quantity">Quantité (ml)</label>
+            <input type="number" id="meal-quantity" min="0" max="500" step="5" required placeholder="ex: 90">
+          </div>
+          <button type="submit" class="btn btn-gold btn-full">
+            <span>Enregistrer le repas</span>
+          </button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">📊 Évolution des quantités</h3>
+        <div class="chart-container">
+          <canvas id="meals-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title-row">
+          <h3 class="card-title">📋 Historique</h3>
+          <div class="filter-row">
+            <label for="meal-filter-date" class="sr-only">Filtrer par date</label>
+            <input type="date" id="meal-filter-date" class="filter-input">
+          </div>
+        </div>
+        <div id="meals-list" class="entries-list">
+          <p class="empty-state">Aucun repas enregistré</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── SECTION : CROISSANCE ─── -->
+    <section id="section-growth" class="app-section">
+      <div class="section-title-row">
+        <h2 class="section-title">Poids & Taille</h2>
+      </div>
+
+      <div class="card card-form">
+        <h3 class="card-title">📏 Nouvelle mesure</h3>
+        <form id="growth-form">
+          <div class="form-group">
+            <label for="growth-date">Date</label>
+            <input type="date" id="growth-date" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="growth-weight">Poids (kg)</label>
+              <input type="number" id="growth-weight" min="0" max="30" step="0.01" required placeholder="ex: 3.50">
+            </div>
+            <div class="form-group">
+              <label for="growth-height">Taille (cm)</label>
+              <input type="number" id="growth-height" min="0" max="120" step="0.1" required placeholder="ex: 50.5">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-gold btn-full">
+            <span>Enregistrer la mesure</span>
+          </button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">📊 Courbes de croissance</h3>
+        <div class="chart-container">
+          <canvas id="growth-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">📋 Historique des mesures</h3>
+        <div id="growth-list" class="entries-list">
+          <p class="empty-state">Aucune mesure enregistrée</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── SECTION : SOMMEIL ─── -->
+    <section id="section-sleep" class="app-section">
+      <div class="section-title-row">
+        <h2 class="section-title">Suivi du Sommeil</h2>
+      </div>
+
+      <div class="card card-form">
+        <h3 class="card-title">😴 Nouvelle sieste</h3>
+        <form id="sleep-form">
+          <div class="form-group">
+            <label for="sleep-date">Date</label>
+            <input type="date" id="sleep-date" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="sleep-start">Début</label>
+              <input type="time" id="sleep-start" required>
+            </div>
+            <div class="form-group">
+              <label for="sleep-end">Fin</label>
+              <input type="time" id="sleep-end" required>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-gold btn-full">
+            <span>Enregistrer le sommeil</span>
+          </button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">📊 Sommeil vs. Recommandations</h3>
+        <div class="chart-container">
+          <canvas id="sleep-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title-row">
+          <h3 class="card-title">📋 Historique</h3>
+          <div class="filter-row">
+            <label for="sleep-filter-date" class="sr-only">Filtrer par date</label>
+            <input type="date" id="sleep-filter-date" class="filter-input">
+          </div>
+        </div>
+        <div id="sleep-list" class="entries-list">
+          <p class="empty-state">Aucune session enregistrée</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!--  NAVIGATION BOTTOM BAR                  -->
+  <!-- ═══════════════════════════════════════ -->
+  <nav id="bottom-nav">
+    <button class="nav-btn active" data-section="dashboard" id="nav-dashboard">
+      <span class="nav-icon">🏛️</span>
+      <span class="nav-label">Accueil</span>
+    </button>
+    <button class="nav-btn" data-section="meals" id="nav-meals">
+      <span class="nav-icon">🍼</span>
+      <span class="nav-label">Repas</span>
+    </button>
+    <button class="nav-btn" data-section="growth" id="nav-growth">
+      <span class="nav-icon">📏</span>
+      <span class="nav-label">Croissance</span>
+    </button>
+    <button class="nav-btn" data-section="sleep" id="nav-sleep">
+      <span class="nav-icon">😴</span>
+      <span class="nav-label">Sommeil</span>
+    </button>
+  </nav>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!--  SCRIPTS                                -->
+  <!-- ═══════════════════════════════════════ -->
+  <script src="js/firebase-config.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/meals.js"></script>
+  <script src="js/growth.js"></script>
+  <script src="js/sleep.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
