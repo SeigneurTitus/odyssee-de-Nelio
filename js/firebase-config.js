@@ -42,12 +42,12 @@
 // ═══════════════════════════════════════════════════════════════
 
 const firebaseConfig = {
-  apiKey:            "",   // ex: "AIzaSyD..."
-  authDomain:        "",   // ex: "mon-projet.firebaseapp.com"
-  projectId:         "",   // ex: "mon-projet"
-  storageBucket:     "",   // ex: "mon-projet.appspot.com"
-  messagingSenderId: "",   // ex: "123456789"
-  appId:             ""    // ex: "1:123456789:web:abc123"
+  apiKey:            "AIzaSyC2THHxjGZZgjv1DU2nxvjF5AjguDmF47w",
+  authDomain:        "odyssee-de-nelio.firebaseapp.com",
+  projectId:         "odyssee-de-nelio",
+  storageBucket:     "odyssee-de-nelio.firebasestorage.app",
+  messagingSenderId: "1081941353815",
+  appId:             "1:1081941353815:web:5847383d758b8503b94a12"
 };
 
 // ═══════════════════════════════════════════════════════════════
