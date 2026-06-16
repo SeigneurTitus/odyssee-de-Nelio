@@ -1,0 +1,17 @@
+{
+  "name": "L'Odyssée de Nelio",
+  "short_name": "Nelio",
+  "description": "Carnet de santé olympien — suivi des repas, poids, taille et sommeil",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#1B4965",
+  "theme_color": "#1B4965",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
