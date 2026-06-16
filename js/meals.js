@@ -138,6 +138,96 @@ const Meals = (() => {
     renderChart(sorted);
   }
 
+  /* ── Prochain biberon estimé (3-4h après le dernier repas) ── */
+  let nextBottleInterval = null;
+
+  function updateNextBottle(lastDatetime) {
+    const card = document.getElementById('next-bottle-card');
+    const timeEl = document.getElementById('next-bottle-time');
+    const countdownEl = document.getElementById('next-bottle-countdown');
+
+    if (!lastDatetime) {
+      card.style.display = 'none';
+      return;
+    }
+
+    const lastMeal = new Date(lastDatetime);
+    // Vérifier que la date est valide
+    if (isNaN(lastMeal.getTime())) {
+      card.style.display = 'none';
+      return;
+    }
+
+    const earliest = new Date(lastMeal.getTime() + 3 * 60 * 60 * 1000); // +3h
+    const latest   = new Date(lastMeal.getTime() + 4 * 60 * 60 * 1000); // +4h
+
+    const fmt = (d) => d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+    timeEl.textContent = 'Entre ' + fmt(earliest) + ' et ' + fmt(latest);
+    card.style.display = '';
+
+    // Mettre à jour le countdown
+    function refreshCountdown() {
+      const now = new Date();
+      const diffMs = earliest.getTime() - now.getTime();
+
+      if (diffMs > 0) {
+        // Pas encore l'heure
+        const mins = Math.floor(diffMs / 60000);
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        const label = h > 0 ? h + 'h' + String(m).padStart(2, '0') : m + ' min';
+        countdownEl.textContent = '⏳ Dans environ ' + label;
+        countdownEl.style.color = 'var(--mediterranean)';
+      } else {
+        const diffLatest = latest.getTime() - now.getTime();
+        if (diffLatest > 0) {
+          // C'est l'heure !
+          countdownEl.textContent = '🍼 C\'est l\'heure du biberon !';
+          countdownEl.style.color = 'var(--gold)';
+          countdownEl.style.fontWeight = '700';
+        } else {
+          // En retard
+          const lateMs = now.getTime() - latest.getTime();
+          const lateMins = Math.floor(lateMs / 60000);
+          countdownEl.textContent = '⚠️ Biberon en retard de ' + lateMins + ' min';
+          countdownEl.style.color = 'var(--danger)';
+          countdownEl.style.fontWeight = '700';
+        }
+      }
+    }
+
+    refreshCountdown();
+    if (nextBottleInterval) clearInterval(nextBottleInterval);
+    nextBottleInterval = setInterval(refreshCountdown, 30000); // refresh toutes les 30s
+  }
+
+  /* ── Écoute du dernier repas (toutes dates confondues) pour le prochain biberon ── */
+  function listenLastMealForBottle() {
+    if (db) {
+      try {
+        db.collection('meals').orderBy('datetime', 'desc').limit(1).onSnapshot((snap) => {
+          if (!snap.empty) {
+            updateNextBottle(snap.docs[0].data().datetime);
+          } else {
+            updateNextBottle(null);
+          }
+        }, () => { loadLocalLastMeal(); });
+      } catch(e) { loadLocalLastMeal(); }
+    } else {
+      loadLocalLastMeal();
+    }
+  }
+
+  function loadLocalLastMeal() {
+    const all = LocalStore.sort(LocalStore.getAll('meals'), 'datetime', 'desc');
+    if (all.length > 0) {
+      updateNextBottle(all[0].data().datetime);
+    } else {
+      updateNextBottle(null);
+    }
+  }
+
   /* ── Écoute temps réel Firestore (avec fallback local) ── */
   function listenMeals() {
     const filterInput = document.getElementById('meal-filter-date');
@@ -182,7 +272,9 @@ const Meals = (() => {
     setDefaults();
     initForm();
     listenMeals();
+    listenLastMealForBottle();
   }
 
   return { init, deleteMeal };
 })();
+
