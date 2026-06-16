@@ -25,21 +25,36 @@ const Growth = (() => {
       const height = parseFloat(document.getElementById('growth-height').value);
       if (!date || isNaN(weight) || isNaN(height)) return;
 
-      try {
-        db.collection('growth').add({
-          date, weight, height,
-          createdAt: new Date().toISOString()
+      const data = { date, weight, height, createdAt: new Date().toISOString() };
+
+      // Sauvegarder en local
+      LocalStore.save('growth', null, data);
+
+      // Sauvegarder sur Firebase si disponible
+      if (db) {
+        db.collection('growth').add(data).catch(err => {
+          console.warn('[Growth] Erreur Firebase:', err.message);
         });
-        document.getElementById('growth-weight').value = '';
-        document.getElementById('growth-height').value = '';
-        App.showToast('Mesure enregistrée ! 📏');
-      } catch(e) { App.showToast('Erreur : configurez Firebase'); }
+      } else {
+        refreshLocalDisplay();
+      }
+
+      document.getElementById('growth-weight').value = '';
+      document.getElementById('growth-height').value = '';
+      App.showToast('Mesure enregistrée ! 📏');
     });
   }
 
   function deleteEntry(id) {
     if (confirm('Supprimer cette mesure ?')) {
-      db.collection('growth').doc(id).delete();
+      LocalStore.delete('growth', id);
+
+      if (db) {
+        db.collection('growth').doc(id).delete().catch(() => {});
+      } else {
+        refreshLocalDisplay();
+      }
+
       App.showToast('Mesure supprimée');
     }
   }
@@ -125,14 +140,33 @@ const Growth = (() => {
     });
   }
 
-  /* ── Listener Firestore ── */
+  /* ── Rafraîchir depuis localStorage ── */
+  function refreshLocalDisplay() {
+    const docs = LocalStore.sort(LocalStore.getAll('growth'), 'date', 'desc');
+    renderList(docs);
+    renderChart(docs);
+  }
+
+  /* ── Listener Firestore (avec fallback local) ── */
   function listenGrowth() {
-    try {
-      db.collection('growth').orderBy('date', 'desc').onSnapshot((snap) => {
-        renderList(snap.docs);
-        renderChart(snap.docs);
-      }, () => {});
-    } catch(e) {}
+    if (db) {
+      try {
+        db.collection('growth').orderBy('date', 'desc').onSnapshot((snap) => {
+          // Mettre en cache dans localStorage
+          snap.docs.forEach(doc => {
+            LocalStore.save('growth', doc.id, doc.data());
+          });
+          renderList(snap.docs);
+          renderChart(snap.docs);
+        }, () => {
+          refreshLocalDisplay();
+        });
+      } catch(e) {
+        refreshLocalDisplay();
+      }
+    } else {
+      refreshLocalDisplay();
+    }
   }
 
   function init() {

@@ -4,6 +4,7 @@
 
 const Sleep = (() => {
   let chart = null;
+  let unsubscribeFiltered = null;
 
   const COLORS = {
     medDeep: '#1B4965',
@@ -45,21 +46,38 @@ const Sleep = (() => {
       if (!date || !startTime || !endTime) return;
 
       const duration = calcDuration(startTime, endTime);
-      try {
-        db.collection('sleep').add({
-          date, startTime, endTime, duration,
-          createdAt: new Date().toISOString()
+      const data = { date, startTime, endTime, duration, createdAt: new Date().toISOString() };
+
+      // Sauvegarder en local
+      LocalStore.save('sleep', null, data);
+
+      // Sauvegarder sur Firebase si disponible
+      if (db) {
+        db.collection('sleep').add(data).catch(err => {
+          console.warn('[Sleep] Erreur Firebase:', err.message);
         });
-        document.getElementById('sleep-start').value = '';
-        document.getElementById('sleep-end').value = '';
-        App.showToast('Sommeil enregistré ! 😴');
-      } catch(e) { App.showToast('Erreur : configurez Firebase'); }
+      } else {
+        refreshFilteredDisplay();
+        refreshChartDisplay();
+      }
+
+      document.getElementById('sleep-start').value = '';
+      document.getElementById('sleep-end').value = '';
+      App.showToast('Sommeil enregistré ! 😴');
     });
   }
 
   function deleteEntry(id) {
     if (confirm('Supprimer cette session ?')) {
-      db.collection('sleep').doc(id).delete();
+      LocalStore.delete('sleep', id);
+
+      if (db) {
+        db.collection('sleep').doc(id).delete().catch(() => {});
+      } else {
+        refreshFilteredDisplay();
+        refreshChartDisplay();
+      }
+
       App.showToast('Session supprimée');
     }
   }
@@ -71,27 +89,7 @@ const Sleep = (() => {
     return h + 'h' + (m > 0 ? String(m).padStart(2, '0') : '');
   }
 
-  /* ── Liste filtrée par jour ── */
-  function listenFiltered() {
-    const filterInput = document.getElementById('sleep-filter-date');
-
-    function query() {
-      const date = filterInput.value;
-      if (!date) return;
-      try {
-        db.collection('sleep')
-          .where('date', '==', date)
-          .orderBy('startTime', 'desc')
-          .onSnapshot((snap) => {
-            renderList(snap.docs);
-          }, () => {});
-      } catch(e) {}
-    }
-
-    filterInput.addEventListener('change', query);
-    query();
-  }
-
+  /* ── Rendu de la liste ── */
   function renderList(docs) {
     const container = document.getElementById('sleep-list');
     if (docs.length === 0) {
@@ -110,29 +108,109 @@ const Sleep = (() => {
     }).join('');
   }
 
+  /* ── Rafraîchir la liste depuis localStorage ── */
+  function refreshFilteredDisplay() {
+    const date = document.getElementById('sleep-filter-date').value;
+    if (!date) return;
+    const docs = LocalStore.query('sleep', [{ field: 'date', op: '==', value: date }]);
+    const sorted = LocalStore.sort(docs, 'startTime', 'desc');
+    renderList(sorted);
+  }
+
+  /* ── Liste filtrée par jour ── */
+  function listenFiltered() {
+    const filterInput = document.getElementById('sleep-filter-date');
+
+    function query() {
+      const date = filterInput.value;
+      if (!date) return;
+
+      if (db) {
+        try {
+          if (unsubscribeFiltered) unsubscribeFiltered();
+
+          unsubscribeFiltered = db.collection('sleep')
+            .where('date', '==', date)
+            .orderBy('startTime', 'desc')
+            .onSnapshot((snap) => {
+              // Cache local
+              snap.docs.forEach(doc => {
+                LocalStore.save('sleep', doc.id, doc.data());
+              });
+              renderList(snap.docs);
+            }, () => {
+              refreshFilteredDisplay();
+            });
+        } catch(e) {
+          refreshFilteredDisplay();
+        }
+      } else {
+        refreshFilteredDisplay();
+      }
+    }
+
+    filterInput.addEventListener('change', query);
+    query();
+  }
+
+  /* ── Rafraîchir le graphique depuis localStorage ── */
+  function refreshChartDisplay() {
+    const allDocs = LocalStore.getAll('sleep');
+    const byDate = {};
+    allDocs.forEach(doc => {
+      const d = doc.data();
+      if (!byDate[d.date]) byDate[d.date] = 0;
+      byDate[d.date] += d.duration || 0;
+    });
+
+    const entries = Object.entries(byDate)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-14);
+
+    const labels = entries.map(([date]) =>
+      new Date(date + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+    );
+    const values = entries.map(([, min]) => +(min / 60).toFixed(1));
+
+    renderChart(labels, values);
+  }
+
   /* ── Graphique : sommeil cumulé par jour vs recommandations ── */
   function listenChartData() {
-    try {
-    db.collection('sleep').orderBy('date', 'desc').onSnapshot((snap) => {
-      const byDate = {};
-      snap.forEach(doc => {
-        const d = doc.data();
-        if (!byDate[d.date]) byDate[d.date] = 0;
-        byDate[d.date] += d.duration || 0;
-      });
+    if (db) {
+      try {
+        db.collection('sleep').orderBy('date', 'desc').onSnapshot((snap) => {
+          // Cache local
+          snap.docs.forEach(doc => {
+            LocalStore.save('sleep', doc.id, doc.data());
+          });
 
-      const entries = Object.entries(byDate)
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .slice(-14);
+          const byDate = {};
+          snap.forEach(doc => {
+            const d = doc.data();
+            if (!byDate[d.date]) byDate[d.date] = 0;
+            byDate[d.date] += d.duration || 0;
+          });
 
-      const labels = entries.map(([date]) =>
-        new Date(date + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-      );
-      const values = entries.map(([, min]) => +(min / 60).toFixed(1));
+          const entries = Object.entries(byDate)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .slice(-14);
 
-      renderChart(labels, values);
-    }, () => {});
-    } catch(e) {}
+          const labels = entries.map(([date]) =>
+            new Date(date + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+          );
+          const values = entries.map(([, min]) => +(min / 60).toFixed(1));
+
+          renderChart(labels, values);
+        }, () => {
+          refreshChartDisplay();
+        });
+      } catch(e) {
+        refreshChartDisplay();
+      }
+    } else {
+      refreshChartDisplay();
+    }
   }
 
   function renderChart(labels, values) {

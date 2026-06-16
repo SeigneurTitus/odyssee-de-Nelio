@@ -4,6 +4,7 @@
 
 const Meals = (() => {
   let chart = null;
+  let unsubscribe = null;
 
   /* ── Couleurs du thème pour Chart.js ── */
   const COLORS = {
@@ -31,23 +32,38 @@ const Meals = (() => {
       if (!date || !time || !quantity) return;
 
       const datetime = date + 'T' + time;
-      try {
-        db.collection('meals').add({
-          datetime,
-          quantity,
-          createdAt: new Date().toISOString()
+      const data = { datetime, quantity, createdAt: new Date().toISOString() };
+
+      // Sauvegarder en local
+      LocalStore.save('meals', null, data);
+
+      // Sauvegarder sur Firebase si disponible
+      if (db) {
+        db.collection('meals').add(data).catch(err => {
+          console.warn('[Meals] Erreur Firebase:', err.message);
         });
-        document.getElementById('meal-quantity').value = '';
-        document.getElementById('meal-time').value = new Date().toTimeString().substring(0, 5);
-        App.showToast('Biberon enregistré ! 🍼');
-      } catch(e) { App.showToast('Erreur : configurez Firebase'); }
+      } else {
+        // Sans Firebase, rafraîchir manuellement l'affichage
+        refreshLocalDisplay();
+      }
+
+      document.getElementById('meal-quantity').value = '';
+      document.getElementById('meal-time').value = new Date().toTimeString().substring(0, 5);
+      App.showToast('Biberon enregistré ! 🍼');
     });
   }
 
   /* ── Suppression d'un repas ── */
   function deleteMeal(id) {
     if (confirm('Supprimer ce repas ?')) {
-      db.collection('meals').doc(id).delete();
+      LocalStore.delete('meals', id);
+
+      if (db) {
+        db.collection('meals').doc(id).delete().catch(() => {});
+      } else {
+        refreshLocalDisplay();
+      }
+
       App.showToast('Repas supprimé');
     }
   }
@@ -109,24 +125,53 @@ const Meals = (() => {
     });
   }
 
-  /* ── Écoute temps réel Firestore ── */
+  /* ── Rafraîchir l'affichage depuis localStorage ── */
+  function refreshLocalDisplay() {
+    const date = document.getElementById('meal-filter-date').value;
+    if (!date) return;
+    const docs = LocalStore.query('meals', [
+      { field: 'datetime', op: '>=', value: date + 'T00:00' },
+      { field: 'datetime', op: '<=', value: date + 'T23:59' }
+    ]);
+    const sorted = LocalStore.sort(docs, 'datetime', 'desc');
+    renderList(sorted);
+    renderChart(sorted);
+  }
+
+  /* ── Écoute temps réel Firestore (avec fallback local) ── */
   function listenMeals() {
     const filterInput = document.getElementById('meal-filter-date');
 
     function query() {
       const date = filterInput.value;
       if (!date) return;
-      try {
-        db.collection('meals')
-          .where('datetime', '>=', date + 'T00:00')
-          .where('datetime', '<=', date + 'T23:59')
-          .orderBy('datetime', 'desc')
-          .onSnapshot((snap) => {
-            const docs = snap.docs;
-            renderList(docs);
-            renderChart(docs);
-          }, () => {});
-      } catch(e) {}
+
+      if (db) {
+        try {
+          // Nettoyer l'ancien listener
+          if (unsubscribe) unsubscribe();
+
+          unsubscribe = db.collection('meals')
+            .where('datetime', '>=', date + 'T00:00')
+            .where('datetime', '<=', date + 'T23:59')
+            .orderBy('datetime', 'desc')
+            .onSnapshot((snap) => {
+              // Mettre en cache dans localStorage
+              snap.docs.forEach(doc => {
+                LocalStore.save('meals', doc.id, doc.data());
+              });
+              renderList(snap.docs);
+              renderChart(snap.docs);
+            }, () => {
+              // Fallback localStorage en cas d'erreur
+              refreshLocalDisplay();
+            });
+        } catch(e) {
+          refreshLocalDisplay();
+        }
+      } else {
+        refreshLocalDisplay();
+      }
     }
 
     filterInput.addEventListener('change', query);
