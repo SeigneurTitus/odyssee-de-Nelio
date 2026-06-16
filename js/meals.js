@@ -146,15 +146,33 @@ const Meals = (() => {
     const timeEl = document.getElementById('next-bottle-time');
     const countdownEl = document.getElementById('next-bottle-countdown');
 
+    if (!card || !timeEl || !countdownEl) return;
+
     if (!lastDatetime) {
-      card.style.display = 'none';
+      card.style.display = '';
+      timeEl.textContent = 'Aucun repas enregistré';
+      countdownEl.textContent = 'Enregistre un biberon pour voir l\'estimation';
+      countdownEl.style.color = 'var(--text-muted)';
+      countdownEl.style.fontWeight = '400';
+      if (nextBottleInterval) clearInterval(nextBottleInterval);
       return;
     }
 
-    const lastMeal = new Date(lastDatetime);
-    // Vérifier que la date est valide
+    // Parser le datetime (format: "2026-06-16T14:30")
+    let lastMeal;
+    if (lastDatetime.includes('T')) {
+      const [datePart, timePart] = lastDatetime.split('T');
+      const [y, mo, d] = datePart.split('-').map(Number);
+      const [h, m] = timePart.split(':').map(Number);
+      lastMeal = new Date(y, mo - 1, d, h, m);
+    } else {
+      lastMeal = new Date(lastDatetime);
+    }
+
     if (isNaN(lastMeal.getTime())) {
-      card.style.display = 'none';
+      card.style.display = '';
+      timeEl.textContent = 'Erreur de format';
+      countdownEl.textContent = 'datetime: ' + lastDatetime;
       return;
     }
 
@@ -166,28 +184,25 @@ const Meals = (() => {
     timeEl.textContent = 'Entre ' + fmt(earliest) + ' et ' + fmt(latest);
     card.style.display = '';
 
-    // Mettre à jour le countdown
     function refreshCountdown() {
       const now = new Date();
       const diffMs = earliest.getTime() - now.getTime();
 
       if (diffMs > 0) {
-        // Pas encore l'heure
         const mins = Math.floor(diffMs / 60000);
         const h = Math.floor(mins / 60);
         const m = mins % 60;
         const label = h > 0 ? h + 'h' + String(m).padStart(2, '0') : m + ' min';
         countdownEl.textContent = '⏳ Dans environ ' + label;
         countdownEl.style.color = 'var(--mediterranean)';
+        countdownEl.style.fontWeight = '400';
       } else {
         const diffLatest = latest.getTime() - now.getTime();
         if (diffLatest > 0) {
-          // C'est l'heure !
           countdownEl.textContent = '🍼 C\'est l\'heure du biberon !';
           countdownEl.style.color = 'var(--gold)';
           countdownEl.style.fontWeight = '700';
         } else {
-          // En retard
           const lateMs = now.getTime() - latest.getTime();
           const lateMins = Math.floor(lateMs / 60000);
           countdownEl.textContent = '⚠️ Biberon en retard de ' + lateMins + ' min';
@@ -199,27 +214,34 @@ const Meals = (() => {
 
     refreshCountdown();
     if (nextBottleInterval) clearInterval(nextBottleInterval);
-    nextBottleInterval = setInterval(refreshCountdown, 30000); // refresh toutes les 30s
+    nextBottleInterval = setInterval(refreshCountdown, 30000);
   }
 
-  /* ── Écoute du dernier repas (toutes dates confondues) pour le prochain biberon ── */
-  function listenLastMealForBottle() {
+  /* ── Trouver le dernier repas global et mettre à jour l'estimation ── */
+  function refreshNextBottle() {
     if (db) {
       try {
-        db.collection('meals').orderBy('datetime', 'desc').limit(1).onSnapshot((snap) => {
-          if (!snap.empty) {
-            updateNextBottle(snap.docs[0].data().datetime);
-          } else {
-            updateNextBottle(null);
-          }
-        }, () => { loadLocalLastMeal(); });
-      } catch(e) { loadLocalLastMeal(); }
+        db.collection('meals').orderBy('datetime', 'desc').limit(1).get()
+          .then((snap) => {
+            if (!snap.empty) {
+              updateNextBottle(snap.docs[0].data().datetime);
+            } else {
+              // Essayer localStorage
+              findLastMealLocal();
+            }
+          })
+          .catch(() => {
+            findLastMealLocal();
+          });
+      } catch(e) {
+        findLastMealLocal();
+      }
     } else {
-      loadLocalLastMeal();
+      findLastMealLocal();
     }
   }
 
-  function loadLocalLastMeal() {
+  function findLastMealLocal() {
     const all = LocalStore.sort(LocalStore.getAll('meals'), 'datetime', 'desc');
     if (all.length > 0) {
       updateNextBottle(all[0].data().datetime);
@@ -252,15 +274,20 @@ const Meals = (() => {
               });
               renderList(snap.docs);
               renderChart(snap.docs);
+              // Rafraîchir l'estimation du prochain biberon
+              refreshNextBottle();
             }, () => {
               // Fallback localStorage en cas d'erreur
               refreshLocalDisplay();
+              refreshNextBottle();
             });
         } catch(e) {
           refreshLocalDisplay();
+          refreshNextBottle();
         }
       } else {
         refreshLocalDisplay();
+        refreshNextBottle();
       }
     }
 
@@ -272,9 +299,9 @@ const Meals = (() => {
     setDefaults();
     initForm();
     listenMeals();
-    listenLastMealForBottle();
   }
 
   return { init, deleteMeal };
 })();
+
 
