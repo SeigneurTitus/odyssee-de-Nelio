@@ -106,7 +106,11 @@ a { color: inherit; text-decoration: none; }
 }
 .card-title {
   font-family: var(--font-title); font-weight: 600; font-size: 1rem;
-  color: var(--med-deep); margin-bottom: 14px; letter-spacing: .5px;
+  color: var(--med-deep); margin-bottom: 4px; letter-spacing: .5px;
+}
+.card-subtitle {
+  font-size: .75rem; color: var(--text-muted);
+  margin-bottom: 12px; letter-spacing: .3px;
 }
 .card-title-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .card-title-row .card-title { margin-bottom: 0; }

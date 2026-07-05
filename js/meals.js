@@ -3,8 +3,10 @@
    ============================================================ */
 
 const Meals = (() => {
-  let chart = null;
-  let unsubscribe = null;
+  let chart        = null;   // Graphique barres (repas du jour sélectionné)
+  let chartWeek    = null;   // Courbe des 7 derniers jours
+  let unsubscribe  = null;
+  let unsubWeek    = null;   // Listener Firebase pour la courbe 7 jours
 
   /* ── Couleurs du thème pour Chart.js ── */
   const COLORS = {
@@ -88,7 +90,7 @@ const Meals = (() => {
     }).join('');
   }
 
-  /* ── Graphique : quantités par heure ── */
+  /* ── Graphique barres : quantités par heure pour le jour filtré ── */
   function renderChart(docs) {
     const ctx = document.getElementById('meals-chart');
     const data = docs.map(doc => {
@@ -125,7 +127,91 @@ const Meals = (() => {
     });
   }
 
-  /* ── Rafraîchir l'affichage depuis localStorage ── */
+  /* ── Courbe 7 jours : volume total bu par jour ── */
+  function renderWeekChart(dayTotals) {
+    // dayTotals = tableau de 7 objets { label: 'lun. 30', total: 650 }
+    const ctx = document.getElementById('meals-week-chart');
+    if (!ctx) return;
+
+    if (chartWeek) chartWeek.destroy();
+    chartWeek = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: dayTotals.map(d => d.label),
+        datasets: [{
+          label: 'Volume total (ml)',
+          data: dayTotals.map(d => d.total),
+          borderColor: COLORS.mediterranean,
+          backgroundColor: COLORS.medLight,
+          borderWidth: 2.5,
+          tension: 0.35,
+          fill: true,
+          pointRadius: 5,
+          pointBackgroundColor: COLORS.mediterranean,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => 'Total : ' + ctx.parsed.y + ' ml'
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+          y: {
+            beginAtZero: true,
+            ticks: { callback: v => v + ' ml', font: { size: 11 } },
+            title: { display: true, text: 'ml / jour', font: { size: 11 } }
+          }
+        }
+      }
+    });
+  }
+
+  /* ── Construire les 7 dates glissantes (aujourd'hui → J-6) ── */
+  function buildWeekDates() {
+    const dates = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      dates.push(d.toISOString().split('T')[0]); // 'YYYY-MM-DD'
+    }
+    return dates;
+  }
+
+  /* ── Label court pour un jour (ex: 'dim. 5') ── */
+  function dayLabel(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
+  }
+
+  /* ── Agréger les repas par date et rendre la courbe 7 jours ── */
+  function buildAndRenderWeek(docs) {
+    const dates  = buildWeekDates();
+    const totals = {};
+    dates.forEach(d => { totals[d] = 0; });
+
+    docs.forEach(item => {
+      const data = item.data ? item.data() : item; // Firestore doc ou objet local
+      const dt   = data.datetime || data.date || '';
+      const date = dt.split('T')[0];
+      if (totals[date] !== undefined) {
+        totals[date] += data.quantity || 0;
+      }
+    });
+
+    const dayTotals = dates.map(d => ({ label: dayLabel(d), total: totals[d] }));
+    renderWeekChart(dayTotals);
+  }
+
+  /* ── Rafraîchir l'affichage depuis localStorage (jour filtré) ── */
   function refreshLocalDisplay() {
     const date = document.getElementById('meal-filter-date').value;
     if (!date) return;
@@ -136,6 +222,20 @@ const Meals = (() => {
     const sorted = LocalStore.sort(docs, 'datetime', 'desc');
     renderList(sorted);
     renderChart(sorted);
+  }
+
+  /* ── Rafraîchir la courbe 7 jours depuis localStorage (tous les enregistrements) ── */
+  function refreshLocalWeek() {
+    // Récupère *tous* les repas stockés en local, puis filtre les 7 derniers jours
+    const allDocs = LocalStore.getAll('meals');
+    const dates   = buildWeekDates();
+    const start   = dates[0]; // 'YYYY-MM-DD'
+    const end     = dates[dates.length - 1];
+    const filtered = allDocs.filter(item => {
+      const dt = (item.data().datetime || item.data().date || '').split('T')[0];
+      return dt >= start && dt <= end;
+    });
+    buildAndRenderWeek(filtered);
   }
 
   /* ── Prochain biberon estimé (3-4h après le dernier repas) ── */
@@ -250,34 +350,28 @@ const Meals = (() => {
     }
   }
 
-  /* ── Écoute temps réel Firestore (avec fallback local) ── */
+  /* ── Écoute temps réel Firestore (jour filtré) + courbe 7 jours ── */
   function listenMeals() {
     const filterInput = document.getElementById('meal-filter-date');
 
+    /* ---- Listener du jour sélectionné ---- */
     function query() {
       const date = filterInput.value;
       if (!date) return;
 
       if (db) {
         try {
-          // Nettoyer l'ancien listener
           if (unsubscribe) unsubscribe();
-
           unsubscribe = db.collection('meals')
             .where('datetime', '>=', date + 'T00:00')
             .where('datetime', '<=', date + 'T23:59')
             .orderBy('datetime', 'desc')
             .onSnapshot((snap) => {
-              // Mettre en cache dans localStorage
-              snap.docs.forEach(doc => {
-                LocalStore.save('meals', doc.id, doc.data());
-              });
+              snap.docs.forEach(doc => LocalStore.save('meals', doc.id, doc.data()));
               renderList(snap.docs);
               renderChart(snap.docs);
-              // Rafraîchir l'estimation du prochain biberon
               refreshNextBottle();
             }, () => {
-              // Fallback localStorage en cas d'erreur
               refreshLocalDisplay();
               refreshNextBottle();
             });
@@ -291,8 +385,37 @@ const Meals = (() => {
       }
     }
 
+    /* ---- Listener des 7 derniers jours (courbe) ---- */
+    function listenWeek() {
+      const dates = buildWeekDates();
+      const start = dates[0] + 'T00:00';               // J-6 00:00
+      const end   = dates[dates.length - 1] + 'T23:59'; // Aujourd'hui 23:59
+
+      if (db) {
+        try {
+          if (unsubWeek) unsubWeek();
+          // Firestore : récupère tous les repas des 7 derniers jours
+          unsubWeek = db.collection('meals')
+            .where('datetime', '>=', start)
+            .where('datetime', '<=', end)
+            .onSnapshot((snap) => {
+              // Mettre en cache localement
+              snap.docs.forEach(doc => LocalStore.save('meals', doc.id, doc.data()));
+              buildAndRenderWeek(snap.docs);
+            }, () => {
+              refreshLocalWeek();
+            });
+        } catch(e) {
+          refreshLocalWeek();
+        }
+      } else {
+        refreshLocalWeek();
+      }
+    }
+
     filterInput.addEventListener('change', query);
     query();
+    listenWeek(); // Lancer la courbe 7 jours au chargement
   }
 
   function init() {

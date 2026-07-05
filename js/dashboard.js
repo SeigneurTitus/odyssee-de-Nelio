@@ -6,21 +6,50 @@ const Dashboard = (() => {
   let ageInterval = null;
   let profileData = null;
 
-  /* ── Calcul de l'âge exact ── */
+  /* ── Calcul de l'âge décomposé ──
+   *  Exemple : 23 jours depuis la naissance
+   *  → months  = 0  (aucun mois complet écoulé)
+   *  → weeks   = 3  (3 semaines complètes dans les 23 jours)
+   *  → days    = 2  (2 jours restants après les 3 semaines)
+   *
+   *  Algorithme :
+   *    1. Calculer les mois complets calendriquement
+   *    2. Poser une date « après ces mois » et compter les jours restants
+   *    3. weeks = floor(joursRestants / 7)
+   *    4. days  = joursRestants % 7
+   * ── */
   function computeAge(birthDateStr) {
     const birth = new Date(birthDateStr + 'T00:00:00');
-    const now = new Date();
-    const diffMs = now - birth;
-    const days = Math.floor(diffMs / 86400000);
-    const weeks = Math.floor(days / 7);
-    const months = Math.floor(days / 30.44);
+    const now   = new Date();
+
+    // 1. Mois complets calendriquement
+    let months = (now.getFullYear() - birth.getFullYear()) * 12
+               + (now.getMonth()   - birth.getMonth());
+    // Reculer d'un mois si le jour du mois n'est pas encore atteint
+    if (now.getDate() < birth.getDate()) months--;
+    if (months < 0) months = 0;
+
+    // 2. Date « après ces mois complets »
+    const afterMonths = new Date(
+      birth.getFullYear(),
+      birth.getMonth() + months,
+      birth.getDate()
+    );
+
+    // 3. Jours restants depuis afterMonths jusqu'à aujourd'hui
+    const remainingDays = Math.floor((now - afterMonths) / 86400000);
+
+    // 4. Semaines et jours dans ces jours restants
+    const weeks = Math.floor(remainingDays / 7);
+    const days  = remainingDays % 7;
+
     return { days, weeks, months };
   }
 
   function updateAgeDisplay() {
     if (!profileData || !profileData.birthDate) return;
     const age = computeAge(profileData.birthDate);
-    document.getElementById('dash-days').textContent = age.days;
+    document.getElementById('dash-days').textContent  = age.days;
     document.getElementById('dash-weeks').textContent = age.weeks;
     document.getElementById('dash-months').textContent = age.months;
   }
